@@ -1,0 +1,79 @@
+service: serverless-apollo-datasource-redis
+
+frameworkVersion: ">=1.21.0 <2.0.0"
+
+provider:
+  profile: ${opt:stage}
+  name: aws
+  runtime: nodejs8.10
+  stage: ${opt:stage}
+  region: ${opt:region}
+  environment:
+    SERVERLESS_PROJECT: serverless-apollo-datasource-redis
+    SERVERLESS_STAGE: ${opt:stage}
+    SERVERLESS_REGION: ${opt:region}
+    NY_TIMES_APIKEY: ${file(secret.yml):NY_TIMES_APIKEY}
+    AWS_XRAY_CONTEXT_MISSING: LOG_ERROR
+    # SLS_DEBUG: true
+plugins:
+  - serverless-webpack
+  - serverless-offline
+
+custom:
+  serverless-offline:
+    port: 4200
+  webpackIncludeModules: true
+
+functions:
+  graphql:
+    handler: handler.graphqlHandler
+    role: ServiceRole
+    events:
+    - http:
+        path: graphql
+        method: post
+        cors: true
+    - http:
+        path: graphql
+        method: get
+        cors: true
+
+resources:
+  Resources:    
+    ServiceRole:
+      Type: "AWS::IAM::Role"
+      Properties:
+        RoleName: "DynamoRole"
+        AssumeRolePolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            -
+              Effect: "Allow"
+              Principal:
+                Service:
+                  - "lambda.amazonaws.com"
+              Action:
+                - "sts:AssumeRole"
+    XrayLambdaRolePolicy:
+      Type: "AWS::IAM::Policy"
+      Properties:
+        PolicyName: "xray-policy"
+        PolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            -
+              Effect: "Allow"
+              Action:
+                - "xray:PutTraceSegments"
+                - "xray:PutTelemetryRecords"
+              Resource:
+                - "*"
+            -
+              Effect: "Allow"
+              Action:
+                - "ssn:GetParameters"
+              Resource:
+                - "arn:aws:ssm:*:*:parameter/apollo-test/${opt:stage}/*"
+        Roles:
+          - Ref: ServiceRole
+        
