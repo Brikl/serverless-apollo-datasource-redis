@@ -6,59 +6,12 @@ const { RESTDataSource } = require('apollo-datasource-rest');
 const AWSXRay = require('aws-xray-sdk');
 const AWS = AWSXRay.captureAWS(require('aws-sdk'));
 
-var ssm = new AWS.SSM({
-  region: 'us-east-1'
-});
-var REDIS_HOST
-var REDIS_PORT
-var REDIS_PASSWORD
-var NY_TIMES_APIKEY
-try {
-  if(process.env.IS_OFFLINE){
-    NY_TIMES_APIKEY = process.env.NY_TIMES_APIKEY    
-  }else{
-    var params = {
-      Names: [
-        '/apollo-test/'+process.env.SERVERLESS_STAGE+'/REDIS_HOST',
-        '/apollo-test/'+process.env.SERVERLESS_STAGE+'/REDIS_PORT',
-        '/apollo-test/'+process.env.SERVERLESS_STAGE+'/REDIS_PASSWORD',
-        '/apollo-test/'+process.env.SERVERLESS_STAGE+'/NY_TIMES_APIKEY',
-      ],
-      WithDecryption: true
-    };
-    ssm.getParameters(params, function(err, data) {
-      if (err) console.log(err, err.stack); // an error occurred
-      else{
-        console.log(
-          'data',
-          data
-        )
-        // if(
-        //   data &&
-        //   data.Parameters &&
-        //   data.Parameters[0] &&
-        //   data.Parameters[0].Value
-        // ){
-        //   REDIS_HOST = data.Parameters[0].Value
-        // }
-      }
-    }); 
-  }  
-} catch (error) {
-  console.log(error)
-}
-
-
 class NYTIMESAPI extends RESTDataSource {
   baseURL = ' https://api.nytimes.com/svc/search/v2/articlesearch.json';  
   async searchNYArticle(q) {
     // https://api.nytimes.com/svc/search/v2/articlesearch.json
-    const result = await this.get(`?q=${q}&api-key=${NY_TIMES_APIKEY}`);
-    if(result.response&&result.response.docs){
-      return result.response.docs
-    }else{
-      return []
-    }
+    const result = await this.get(`?q=${q}&api-key=${process.env.NY_TIMES_APIKEY}`);
+    return result.response && result.response.docs ? result.response.docs : []    
   }
 }
 
@@ -96,23 +49,41 @@ const server = new ApolloServer({
     };
   },  
   cache: new RedisCache({
+    connectTimeout: 5000,
+    reconnectOnError: function (err) {
+      console.log('Reconnect on error', err)
+      var targetError = 'READONLY'
+      if (err.message.slice(0, targetError.length) === targetError) {
+        // Only reconnect when the error starts with "READONLY"
+        return true
+      }
+    },
+    retryStrategy: function (times) {
+      console.log('Redis Retry', times)
+      if (times >= 3) {
+        return undefined
+      }
+      var delay = Math.min(times * 50, 2000)
+      return delay
+    },
+    socket_keepalive: false,
     host: 
-      process.env.IS_OFFLINE 
+      process.env.IS_OFFLINE==='true' 
       ?
       '127.0.0.1'
       :
-      REDIS_HOST,
-  port: 
-      process.env.IS_OFFLINE 
+      process.env.REDIS_HOST,
+    port: 
+      process.env.IS_OFFLINE==='true' 
       ?                     
       6379
       :                        
-      REDIS_PORT,                    
-  password: 
-      process.env.IS_OFFLINE ?                    
+      parseInt(process.env.REDIS_PORT),
+    password: 
+      process.env.IS_OFFLINE==='true' ?                    
       ''
       :
-      REDIS_PASSWORD,
+      process.env.REDIS_PASSWORD,
   }),
   context: ({ event, context }) => ({
     headers: event.headers,
@@ -122,9 +93,13 @@ const server = new ApolloServer({
   })
 });
 
-exports.graphqlHandler = server.createHandler({
-  cors: {
-    origin: '*',
-    credentials: true,
-  },
-});
+exports.graphqlHandler = (event, context, callback) => {
+  const handler = server.createHandler({  
+      cors: {
+        origin: '*',
+        credentials: true,
+      },
+  });
+  context.callbackWaitsForEmptyEventLoop = false;
+  return handler(event, context, callback);
+}

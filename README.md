@@ -7,7 +7,5 @@ This is a sample to run Apollo Server rc2 on AWS Lambda with external Redis cach
 As a sample we are using NY Times API articles search:
 https://developer.nytimes.com/article_search_v2.json
 
-For local development you may create a secret.yml
-
-    ENGINE_API_KEY: YOURENGINEAPIKEY
-    NY_TIMES_APIKEY: YOURNYTIMEAPIKEY
+## Deployment 
+serverless deploy --region us-east-1 --stage staging --profile yourprofilename

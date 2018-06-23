@@ -8,12 +8,27 @@ provider:
   runtime: nodejs8.10
   stage: ${opt:stage}
   region: ${opt:region}
+  iamRoleStatements:
+    - Effect: "Allow"
+      Action:
+        - "xray:PutTraceSegments"
+        - "xray:PutTelemetryRecords"
+      Resource:
+        - "*"
+    - Effect: "Allow"
+      Action:
+        - "ssm:GetParameters"
+      Resource:
+        - "arn:aws:ssm:*:*:parameter/apollo-test/${opt:stage}/*"
   environment:
     SERVERLESS_PROJECT: serverless-apollo-datasource-redis
     SERVERLESS_STAGE: ${opt:stage}
-    SERVERLESS_REGION: ${opt:region}
-    NY_TIMES_APIKEY: ${file(secret.yml):NY_TIMES_APIKEY}
+    SERVERLESS_REGION: ${opt:region}    
     AWS_XRAY_CONTEXT_MISSING: LOG_ERROR
+    REDIS_HOST: ${ssm:/apollo-test/${opt:stage}/REDIS_HOST~true}
+    REDIS_PORT: ${ssm:/apollo-test/${opt:stage}/REDIS_PORT~true}
+    REDIS_PASSWORD: ${ssm:/apollo-test/${opt:stage}/REDIS_PASSWORD~true}
+    NY_TIMES_APIKEY: ${ssm:/apollo-test/${opt:stage}/NY_TIMES_APIKEY~true}
     # SLS_DEBUG: true
 plugins:
   - serverless-webpack
@@ -27,7 +42,6 @@ custom:
 functions:
   graphql:
     handler: handler.graphqlHandler
-    role: ServiceRole
     events:
     - http:
         path: graphql
@@ -36,44 +50,4 @@ functions:
     - http:
         path: graphql
         method: get
-        cors: true
-
-resources:
-  Resources:    
-    ServiceRole:
-      Type: "AWS::IAM::Role"
-      Properties:
-        RoleName: "DynamoRole"
-        AssumeRolePolicyDocument:
-          Version: "2012-10-17"
-          Statement:
-            -
-              Effect: "Allow"
-              Principal:
-                Service:
-                  - "lambda.amazonaws.com"
-              Action:
-                - "sts:AssumeRole"
-    XrayLambdaRolePolicy:
-      Type: "AWS::IAM::Policy"
-      Properties:
-        PolicyName: "xray-policy"
-        PolicyDocument:
-          Version: "2012-10-17"
-          Statement:
-            -
-              Effect: "Allow"
-              Action:
-                - "xray:PutTraceSegments"
-                - "xray:PutTelemetryRecords"
-              Resource:
-                - "*"
-            -
-              Effect: "Allow"
-              Action:
-                - "ssn:GetParameters"
-              Resource:
-                - "arn:aws:ssm:*:*:parameter/apollo-test/${opt:stage}/*"
-        Roles:
-          - Ref: ServiceRole
-        
+        cors: true       
